@@ -7,6 +7,8 @@ import sdk, {
   type Context,
 } from "@farcaster/frame-sdk";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
+import { Skeleton } from "~/components/ui/skeleton";
 
 import { config } from "~/components/providers/WagmiProvider";
 import { PurpleButton } from "~/components/ui/PurpleButton";
@@ -17,19 +19,57 @@ import { createStore } from "mipd";
 import { Label } from "~/components/ui/label";
 import { PROJECT_TITLE } from "~/lib/constants";
 
-function ExampleCard() {
+interface WeatherData {
+  name: string;
+  main: {
+    temp: number;
+    feels_like: number;
+    humidity: number;
+  };
+  weather: {
+    main: string;
+    description: string;
+    icon: string;
+  }[];
+}
+
+function WeatherCard({ weather }: { weather: WeatherData | null }) {
+  if (!weather) {
+    return (
+      <Card className="border-neutral-200 bg-white">
+        <CardHeader>
+          <CardTitle className="text-neutral-900">Loading Weather...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-4 w-[200px]" />
+          <Skeleton className="h-4 w-[150px] mt-2" />
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="border-neutral-200 bg-white">
       <CardHeader>
-        <CardTitle className="text-neutral-900">Welcome to the Frame Template</CardTitle>
+        <CardTitle className="text-neutral-900">{weather.name}</CardTitle>
         <CardDescription className="text-neutral-600">
-          This is an example card that you can customize or remove
+          Current weather conditions
         </CardDescription>
       </CardHeader>
       <CardContent className="text-neutral-800">
-        <p>
-          Your frame content goes here. The text is intentionally dark to ensure good readability.
-        </p>
+        <div className="flex items-center gap-4">
+          <div className="text-4xl font-bold">
+            {Math.round(weather.main.temp)}°C
+          </div>
+          <div>
+            <Badge variant="outline">{weather.weather[0].main}</Badge>
+            <div className="text-sm mt-1">{weather.weather[0].description}</div>
+          </div>
+        </div>
+        <div className="mt-4 space-y-1 text-sm">
+          <div>Feels like: {Math.round(weather.main.feels_like)}°C</div>
+          <div>Humidity: {weather.main.humidity}%</div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -40,6 +80,9 @@ export default function Frame(
 ) {
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [context, setContext] = useState<Context.FrameContext>();
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [added, setAdded] = useState(false);
 
@@ -61,12 +104,48 @@ export default function Frame(
     }
   }, []);
 
+  const fetchWeather = async (lat: number, lon: number) => {
+    try {
+      const response = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}&units=metric`
+      );
+      if (!response.ok) throw new Error('Weather data unavailable');
+      const data = await response.json();
+      setWeather(data);
+    } catch (err) {
+      setError('Failed to fetch weather data');
+      console.error(err);
+    }
+  };
+
+  const getLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setLocation({ lat: latitude, lon: longitude });
+          fetchWeather(latitude, longitude);
+        },
+        (error) => {
+          setError('Location access denied. Using default location.');
+          fetchWeather(37.7749, -122.4194); // Default to San Francisco
+        }
+      );
+    } else {
+      setError('Geolocation not supported. Using default location.');
+      fetchWeather(37.7749, -122.4194); // Default to San Francisco
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const context = await sdk.context;
       if (!context) {
         return;
       }
+      
+      // Get user location and weather
+      getLocation();
 
       setContext(context);
       setAdded(context.client.added);
@@ -137,7 +216,10 @@ export default function Frame(
     >
       <div className="w-[300px] mx-auto py-2 px-2">
         <h1 className="text-2xl font-bold text-center mb-4 text-neutral-900">{title}</h1>
-        <ExampleCard />
+        {error && (
+          <div className="text-red-500 text-sm mb-2 text-center">{error}</div>
+        )}
+        <WeatherCard weather={weather} />
       </div>
     </div>
   );
